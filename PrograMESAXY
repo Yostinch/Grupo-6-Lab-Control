@@ -1,11 +1,11 @@
 /* ========================================
  *
- * Copyright YOUR COMPANY, THE YEAR
+ * Copyright ITCR Laboratorio de Control Automatico Grupo 6, II Semestre  2019
  * All Rights Reserved
- * UNPUBLISHED, LICENSED SOFTWARE.
+ * PUBLISHED, NON-LICENSED SOFTWARE.
  *
  * CONFIDENTIAL AND PROPRIETARY INFORMATION
- * WHICH IS THE PROPERTY OF your company.
+ * WHICH IS THE PROPERTY OF ITCR.
  *
  * ========================================
 */
@@ -13,14 +13,23 @@
 #include "project.h"
 #include "stdbool.h"
 #include "stdio.h"
-#include "usbuartio.h"  
+#include "usbuartio.h"    
+#include "math.h"
 
 
-/**********Entradas del Psoc para los finales de carrera**********/
-int Pin1; // Entrada digital 1 
-int Pin2; // Entrada digital 2
-int Pin3; // Entrada digital 3
-int Pin4; // Entrada digital 4
+//Funcion del control PI X
+
+#define PWM_MAX 499   //12499
+#define N_MAX   500   //12500 
+
+//Funcion del control PI Y
+#define PWM_MAX2 599  //136898
+#define N_MAX2   600 //136899 
+
+
+#define V_MAX 6
+
+int td=1500;
 
 /**************************************************************/
 
@@ -28,96 +37,90 @@ int Pin4; // Entrada digital 4
 
 
 //Salidas del Sistema
-float posx0, posx1 , posx2 =0 ; // Muestras de la poscion x(n), x(n-1), x(n-2)
+float posx0, posx1,  posx2 =0 ; // Muestras de la poscion x(n), x(n-1), x(n-2)
 float posy0 , posy1 , posy2 =0; // Muestra de la poscion  y(n), y(n-1), y(n-2)
 
-
-//Funcion del control
-#define REFF 
+//Variables 
+float pwmX; // Valor para el Ciclo de Trabajo del PWM X
+float pwmY; // Valor para el Ciclo de Trabajo del PWM Y
 
 float eX, eY;    //ex(n), ey(n)
 float eX1, eY1;  //ex(n-1), ey(n-1)
 float eX2, eY2;  //ex(n-2), ey(n-2)
 
-float sc, sc1, sc2 =0 ; //salida de control sc(n), sc(n-1), sc(n-2) 
+float scX, scX1, scX2 =0 ; //salida de control scX(n), scX(n-1), scX(n-2) 
+float scY, scY1, scY2 =0 ; //salida de control scY(n), scY(n-1), scY(n-2) 
+
+float velY, velY1, velY2=0; // velocidad del sistema velY(n), velY(n-1), velY(n-2)
+float velX, velX1, velX2=0; // velocidad del sistema velX(n), velX(n-1), velX(n-2)
 
 
-float psoc=0;
+/*Lineas/Diagonales */
+int lineai=1;
+int linea0,linea1, linea2, linea3, linea4, linea5, linea6 =0;
+int diagonal0,diagonal1,diagonal2, diagonal3, diagonal4, diagonal5, diagonal6, diagonal7, diagonal8=0;
 
-float vel=0;
-float vel1=0;
-float vel2=0;
-//Constantes 
+/****Constantes de posicionamiento******/
 
-float c1= 0.00635;
-float c2= 0.006054;
-float c3= 1236.5;
-float c4= 2000;
+int posicionx[]={1,2,0,0, -4, -2, 0}; //Coordenadas para el Motor X
+int posiciony[]={1,0,0,0, -1,  1,-1}; //Cordenadas para el Motor Y
+
+int n_max=2; //Numero de Coordenadas Maximas 
+
+int direccionx=0; //Bandera Direccion
+int direcciony=0; //Bandera Direccion
+
+int DeltaPx=0;
+int DeltaPy=0;
+
+int P1x=0;
+int P2y=0;
+
+int nx=0;
+int ny=0;
+int n=0;
+
+int pc1=0;
+int dela=0;
+int lay=0;
+int lay1=0;
+int lay2=0;
+
+
+float xref=0;
+float yref=0;
+
+int pc[]={1,0,0,0,0,0,0,0};
+
+/****Constantes Control PI*****/
+float c1= 15.43;
+float c2= 14.81;   
+float c3= 15.43; 
+float c4= 14.81;
+
+/****Constantes Control PD*****/
+
+float kd=0.020461;
+float kp=0.42477036;
+float ki=1.6;
 
 
 /****Funciones****/
-int fcarreraX();
-int fcarreraY();
-void movimiento();
+
 void controlY();
 void controlX();
+void velocidad();
+void mpwmY();
+void mpwmX();
 
 
+char displayPY[20]= {'\0'};//Variable para la muestra de la poscion Y el LCD
+char displayVY[20]= {'\0'};//Variable para la muestra de la poscion Y el LCD
+
+char displayPX[20]= {'\0'};//Variable para la muestra de la poscion X el LCD
+char displayVX[20]= {'\0'};//Variable para la muestra de la velocidad X el LCD
 
 
-
-
-//declaracion de constantes globales
-//V vertical y H horizontal para todo caso
-int currentPositionH; //Variable para el conteo del encoder horizontal
-int currentPositionV; //Variable para el conteo del encoder vertical
-int previousPositionH=0; //Variable para el conteo del encoder horizontal
-int previousPositionV=0; //Variable para el conteo del encoder vertical
-char displayStrH[20]= {'\0'};//Display LCD
-char displayStrV[20]= {'\0'};//Display LCD
-char displayStrm[20]= {'\0'};//Display LCD
-float cicloh, velh; // esta es la variabe la cual va a permitir incluir la correccion con la curva de mejor ajuste
-float ciclos, ciclob;
-
-//Variables locales para el algoritmo del control PI
-//Bajada
-float kpb=0.0027149;
-float kib=0.031731;
-//Subida
-float kps=0.024765;
-float kis=0.068408;   //original
-//float kis=0.035;
-
-//Horizontal
-float kph=0.65186;
-float kih=0.98818;
-
-float errorX, errorZ;    // Antes estaban en Cero
-float errorX_ant,errorZ_ant;
-float integralX, integralZ;
-float ctrl_pX, ctrl_pZ;
-float ctrl_iX, ctrl_iZ;
-float salidaX=0, salidaZ=0;    //  80     110
-
-//Variables para lectura encoder, conversion a rpm 
-
-float rpmv; 
-float rpmh;
-
-//Definicion parametros
-
-//int Cant_vuelta_V=99;
-//int Cant_vuelta_H=642;
-//float rel_engranesH = 18.75;
-//float rel_vuelta_distancia_veritcal=0.8; //Movimiento lineal en eje vertical respecto a las vueltas.
-//float PosXactual=0, PosXfutura=50;//Posicion deseada en X
-//float PosZactual=20, PosZfutura=0;//Posicion deseada en Z
-float Xdelta;
-float Zdelta;
-float MaxX=100, MaxZ=39; //rango máximo de 45cm para el movimiento V y H.
-float VelMaxZs= 300; //ciclo maximo de trabajo para 300rpm cuando sube (180 de ciclo)
-float VelMaxZb= 303; //ciclo maximo de trabajo para 303rpm  cuando baja (150 de ciclo)
-float VelMaxX= 19; // ciclo maximo de trabajo para 19rpm cuando se mueve izq o derecha (130 de ciclo)
 
 int timeold=0, time; //Variables para conteo de 1s por ms
 int ms_count=0;
@@ -127,14 +130,17 @@ int ms_count_old2=0;
 int enable=0;
 int enable2=0;
 
-float VelReqX;
-float VelReqZ;
+
+float rx=5;
+float ry=3.5;
+
+float iY,iX=0;
 
 
 
 //Interrupcion del timer para conteo de 1 segundo, calculo de velocidades cada 10ms
 CY_ISR(isr_Timer_1){
-    ms_count_old = ms_count;
+    ms_count_old=ms_count;
     ms_count++;
     ms_count_old2=ms_count2;
     ms_count2++;
@@ -147,7 +153,8 @@ CY_ISR(isr_Timer_1){
     if(ms_count2 == 10000) { // 10 second
         ms_count2 = 0; // reset ms counter
         enable2=1;        
-    } 
+    }
+    
 }
 
 
@@ -155,162 +162,471 @@ int main(void)
 {
     CyGlobalIntEnable; /* Enable global interrupts. */
     
-    /*Startup de los bloques del sistema*/
-    Timer_Start();//Inicialización del timer para 5ms, para darle el tiempo de lectura a los Quad
+    /*Inicializa los bloques*/
+    
+    Timer_Start();
     LCD_Start();       
-    QuadDecH_Start(); //Sensor cuadratura para movimiento horizontal
-    QuadDecV_Start(); //Sensor cuadratura para movimiento vertical
+    QuadDecH_Start(); //Sensor de Q para movimiento X 
+    QuadDecV_Start(); //Sensor de Q para movimiento Y 
     Millis_Start();
     isr_Timer_1_StartEx(isr_Timer_1); //Inicializacion de la interrupcion para contar segundos con ms
     PWMv_Start();
     PWMh_Start();
+
     
+       
+    //-------------------------BUCLE PRINCIPAL----------------------------
     for(;;)
     {
-        PWMh_WriteCompare2(10000);
-        PWMh_WriteCompare1(0); 
-
+    
         
-        posx0=QuadDecH_GetCounter()*0.001273239;
-        vel=abs((posx0-posx1));
         
-        //controlY();
-
-    LCD_Position(0,0);
-    sprintf(displayStrH ,"VerH: %1.3f", vel);
-    LCD_PrintString(displayStrH);
-    
-    LCD_Position(1,0);
-    sprintf(displayStrV ,"VelV: %.3f", rpmv);
-    LCD_PrintString(displayStrV);
-    
-
-    }
-    
-}
-int fcarreraX() //Esta funcion detecta los finales de carrera del eje X
-{
-/***********Lee las entradas*****************/
-    Pin1=FCX1_Read(); 
-    Pin2=FCX2_Read();;
-/*******************************************/
-
-    
-    if (Pin1==1)
-        {
-            return 1;
-        }
-    else if (Pin2==1)
-        {
-            return 2;
-        }
-
-    else 
-        return 0;
-}
-
-int fcarreraY() //Esta funcion detecta los finales de carrera del eje Y
-{
-/***********Lee las entradas*****************/
-    Pin3=FCY1_Read();;
-    Pin4=FCY2_Read();;
-/*******************************************/
-
-    
-    if (Pin1==1)
-        {
-            return 1;
-        }
-    else if (Pin2==1)
-        {
-            return 2;
-        }
-    else 
-        return 0;
-}
-
-
-void movimiento()
-{
-
-    if (fcarreraX()== 1 && fcarreraX()== 0)
-        {
-    
-            PWMh_WriteCompare1(30000);
-            PWMh_WriteCompare2(0);
-    
-        }
-    
-    else if (fcarreraX()== 1 && fcarreraX()== 1)
-        {
-    
-            PWMh_WriteCompare1(0);
-            PWMh_WriteCompare2(30000);
-        
-        }
-    
-    else if (fcarreraY()== 1 && fcarreraX()== 1)
-        {
-    
-            PWMv_WriteCompare1(30000);
-            PWMv_WriteCompare2(0);
+        posx0=QuadDecH_GetCounter();
+        posy0=QuadDecV_GetCounter(); // Transformacion a Centimetros aprox.
    
+       
+        if ((posy0)<(740)&&lineai==1) //Movimiento 4 Linea1
+        {
+            yref=786;
+                        
+            controlY();
+            
+            PWMv_WriteCompare1(000);
+            PWMv_WriteCompare2(150);
+            
+        }
+        
+        if ((posy0)>=740 &&lineai==1)
+        {
+            PWMh_WriteCompare2(0);
+            PWMh_WriteCompare1(0);
+            
+            PWMv_WriteCompare2(0);
+            PWMv_WriteCompare1(0);
+            
+            lineai=0;
+            lay=8;
+            
+        }
+        
+        if(lay==8)
+        {
+            dela=dela+1;
+            if(dela>td){
+                linea0=1;
+                dela=0;
+                lay=0;
+
+
+                }
         }
     
-        else if (fcarreraY()==1 && fcarreraX()== 1)
+       ///// ----- MOVIMIENTO 1 ----- ///// 
+       if((posx0)<(3142)&&linea0==1) //Movimiento 1 Linea0
         {
+            xref=3142;
+            
+            controlX();
+            mpwmX();
+            
+            PWMh_WriteCompare2(0);
+            PWMh_WriteCompare1(pwmX);
+        }
+    
+        if((posx0)>=(3142) && linea0==1) 
+        {
+            PWMh_WriteCompare2(0);
+            PWMh_WriteCompare1(0);
+            
+            PWMv_WriteCompare2(0);
             PWMv_WriteCompare1(0);
-            PWMv_WriteCompare2(30000);
-        
-        
+            
+            linea0=0;  
+            lay=1;
+            
+        }
+                
+        if(lay==1){
+            dela=dela+1;
+            if(dela>td){
+                diagonal0=1;
+                dela=0;
+                lay=0;     
+            }
         }
 
+        ///// ----- MOVIMIENTO 2 ----- ///// 
+        if ((posx0)>(1571)&&diagonal0==1) //Movimiento 2 Diagonal0
+        {
+         
+            xref=1571;
+            yref=2358;
+            
+            controlX();
+            controlY();
+            
+            mpwmX();
+            mpwmY();
+            
+            PWMh_WriteCompare2(pwmX);
+            PWMh_WriteCompare1(0);
+            
+            PWMv_WriteCompare2(pwmY);//0.95
+            PWMv_WriteCompare1(0);
+        }
+
+        if ((posx0)<=(1571)&&diagonal0==1)
+        {
+            PWMh_WriteCompare2(0);
+            PWMh_WriteCompare1(0);
+            
+            PWMv_WriteCompare2(0);
+            PWMv_WriteCompare1(0);
+            diagonal0=0;
+            
+            lay=2;
+        }
+        if(lay==2){
+            dela=dela+1;
+            if(dela>td){
+                diagonal1=1;
+                dela=0;
+                lay=0;
+
+                
+            }
+        }   
+        ///// ----- MOVIMIENTO 3 ----- ///// 
+        if ((posx0)>0 &&diagonal1==1) //Movimiento 3 Diagonal1
+        {
+
+            xref=0;
+            yref=786;
+            controlX();
+            controlY();
+            
+            mpwmX();
+            mpwmY();
+
+            
+            PWMv_WriteCompare2(0);
+            PWMv_WriteCompare1(pwmY);
+            
+            PWMh_WriteCompare2(pwmX);
+            PWMh_WriteCompare1(0);
+            
+        }
+        
+
+
+        if ((posx0)<=0 &&diagonal1==1)
+        {
+            PWMh_WriteCompare2(0);
+            PWMh_WriteCompare1(0);
+            
+            PWMv_WriteCompare2(0);
+            PWMv_WriteCompare1(0);
+            
+            diagonal1=0;
+            
+            lay=3;
+        }
+        if(lay==3){
+            dela=dela+1;
+            if(dela>td){
+                linea1=1;
+                dela=0;
+                lay=0;
+
+                
+            }
+        }
+        ///// ----- MOVIMIENTO 4 ----- ///// 
+        if ((posy0)<(1520)&&linea1==1) //Movimiento 4 Linea1
+        {
+            yref=1571;
+                        
+            controlY();
+            
+            PWMv_WriteCompare1(000);
+            PWMv_WriteCompare2(150);
+            
+        }
+        
+        if ((posy0)>=1520 &&linea1==1)
+        {
+            PWMh_WriteCompare2(0);
+            PWMh_WriteCompare1(0);
+            
+            PWMv_WriteCompare2(0);
+            PWMv_WriteCompare1(0);
+            
+            linea1=0;
+            lay=4;
+            
+        }
+        
+        if(lay==4)
+        {
+            dela=dela+1;
+            if(dela>td){
+                diagonal2=1;
+                dela=0;
+                lay=0;
+
+
+                }
+        }
+        
+        
+        ///// ----- MOVIMIENTO 5 ----- ///// 
+        if ((posx0)<(1550)&&diagonal2==1) //Movimiento 5 Diagonal3
+        {
+
+            xref=1571;
+            yref=0;
+            
+            controlX();
+            controlY();
+            
+            mpwmX();
+            mpwmY();
+            
+            PWMh_WriteCompare2(00);
+            PWMh_WriteCompare1(pwmX);
+            
+            PWMv_WriteCompare1(pwmY);
+            PWMv_WriteCompare2(00);
+        }
+
+        if ((posx0)>=(1550)&&diagonal2==1)
+        {
+            PWMh_WriteCompare2(0);
+            PWMh_WriteCompare1(0);
+            
+            PWMv_WriteCompare2(0);
+            PWMv_WriteCompare1(0);
+            
+            diagonal2=0;
+            lay=5;
+        }
+    
+        
+        
+        if(lay==5)
+        {
+            dela=dela+1;
+            if(dela>td)
+            {
+            diagonal3=1;
+                dela=0;
+                lay=0;
+
+                }
+        }
+        
+        ///// ----- MOVIMIENTO 6 ----- ///// 
+        if ((posx0)< (3142)&&diagonal3==1) //Movimiento 6 Diagonal2
+        {
+
+            xref=3142;
+            yref=1571;
+            
+            controlX();
+            controlY();
+
+            mpwmX();
+            mpwmY();
+
+            PWMv_WriteCompare1(0);
+            PWMv_WriteCompare2(pwmY);
+            
+            PWMh_WriteCompare2(00);
+            PWMh_WriteCompare1(pwmX);
+            
+        }
+
+
+        if ((posx0)>=(3142)&&diagonal3==1)
+        {
+            PWMh_WriteCompare2(0);
+            PWMh_WriteCompare1(0);
+            
+            PWMv_WriteCompare2(0);
+            PWMv_WriteCompare1(0);
+            
+            diagonal3=0;
+            lay=6;
+        }
+      
+        if(lay==6)
+        {
+            dela=dela+1;
+            if(dela>td)
+            {
+                linea3=1;
+                dela=0;
+                lay=0;
+                }
+        }
+
+        ///// ----- MOVIMIENTO 7 ----- ///// 
+       if((posx0)>(0)&&linea3==1) //Movimiento 7 Linea2
+        {
+            xref=0;
+           
+            controlX();
+            mpwmX();
+            
+            PWMh_WriteCompare1(0);
+            PWMh_WriteCompare2(pwmX);
+        }
+    
+        if((posx0)<=(0) && linea3==1) 
+        {
+            PWMh_WriteCompare2(0);
+            PWMh_WriteCompare1(0);
+            
+            PWMv_WriteCompare2(0);
+            PWMv_WriteCompare1(0);
+            
+            linea3=0;  
+            lay=7;
+            
+        }
+        //Escribe en el Display la posicion y el error 
+        LCD_Position(0,0);
+        sprintf(displayPX ,"PX:%.2f", posx0);
+        LCD_PrintString(displayPX);
+    
+        LCD_Position(0,9);
+        sprintf(displayVX ,"VX:%.2f", eX);
+        LCD_PrintString(displayVX);
+        
+        
+        LCD_Position(1,0);
+        sprintf(displayPY ,"PY:%.2f", posy0);
+        LCD_PrintString(displayPY);        
+
+        
+        LCD_Position(1,9);
+        sprintf(displayVY ,"VY:%.2f", eY);
+        LCD_PrintString(displayVY);
+
+        
+        
+    
 }
+
+
+}
+
+
+/*Funciones de Control*/
+
 
 void controlY()// En esta funcion se encuentra la funcion de transferencia del control
 {
-
-    eX= 1.667 - vel; // referencia de velocidad  
+ 
+    eY= (yref - posy0); // referencia de velocidad  *(angle/90)
+    float dY=kd*(posy0-posy1);
+    //scX= 0.4673*(eX - eX1) +eX*1024 +17.99*(eX-2*eX1 +eX2)+ scX1;
     
-    sc= c1*eX - c2*eX1 + sc1;
-    
-    PWMh_WriteCompare1(sc*10000);
-    PWMh_WriteCompare2(0);
-    
-    eX1=eX; //x(n)-> x(n-1)
-    eX2=eX1; //x(n-1)-> x(n-2)
-    
-    vel1=vel;//
-    vel2=vel1;//
-    
-    sc1=sc;
+    if(fabs(eY)>100 && fabs(iY)<500){
+        iY=iY+eY;
+    }
+    if(fabs(eY)<100){
+        iY=0;
+    }
     
     
+    scY=kp*eY-dY+ki*iY;
     
+    eY1=eY; //x(n)-> x(n-1)
+    eY2=eY1; //x(n-1)-> x(n-2)
+    
+    scY1=scY;
+    posy1=posy0;
     
 }
+
 
 void controlX()// En esta funcion se encuentra la funcion de transferencia del control
 {
-
-    eX= REFF - posx0;
-    
-    sc= c1*eX - c2*eX1 - c3*eX2 + c4*posx2;
+ 
+    eX= (xref - posx0); // Calculo del error
+    float dX=kd*(posx0-posx1);
+    if(fabs(eX)>100 && fabs(iX)<500){
+        iX=iX+eX;
+    }
+    if(fabs(eX)<100){
+        iX=0;
+    }
+    scX=kp*eX-dX+ki*iX;
     
     eX1=eX; //x(n)-> x(n-1)
     eX2=eX1; //x(n-1)-> x(n-2)
     
-    posx1=posx0;//
-    posx2=posx1;//
-    
-    sc1=sc;
-    sc2=sc;
-
+    scX1=scX;
+    posx1=posx0;
 }
 
 
+void velocidad()
+{
+    if (enable==1)
+        {
+            velX=fabs(posx0-posx1)*100;
+            posx1=posx0;
+            
+            velY=fabs(posy0-posy1)*100;
+            posy1=posy0;
+            
+            enable=0;
+            
+        }
+    
+}
+
+void mpwmX()
+{
+    pwmX= (int16) ((fabs(scX))*5); 
+        
+    if (pwmX > 250)
+        {
+            pwmX=250;
+        }        
+      
+    else if (pwmX<0)
+        {
+    
+            pwmX=0;
+            
+        }
+          
+}
+
+void mpwmY()
+{
+
+    pwmY= (int16) ((fabs(scY))*7);
+        
+    if (pwmY > 250)
+        {
+            pwmY=250;
+        }        
+      
+    else if (pwmY<0)
+        {
+    
+            pwmY=0;
+            
+        }
+          
+}    
 
 
 
 
-/* [] END OF FILE */
+
+/*[] END OF FILE */
